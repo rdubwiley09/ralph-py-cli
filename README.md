@@ -1,5 +1,7 @@
 # ralph-py-cli
 
+## Note: this is a cli that allows one to run claude code in yolo mode for a given number of iterations. Use caution and other best practices when going degen mode.
+
 A CLI tool for running Claude Code iteratively on a project until completion.
 
 ## What is a Ralph Loop?
