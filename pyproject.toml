@@ -1,6 +1,6 @@
 [project]
 name = "ralph-py-cli"
-version = "0.2.0"
+version = "0.2.1"
 description = "A CLI application for running Claude Code iteratively on design documents"
 readme = "README.md"
 requires-python = ">=3.10"
