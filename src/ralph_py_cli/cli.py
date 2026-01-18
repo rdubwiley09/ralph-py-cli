@@ -11,6 +11,11 @@ from ralph_py_cli.utils.claude_runner import (
     RunStatus,
     run_claude_iteration,
 )
+from ralph_py_cli.utils.interactive import (
+    LoopState,
+    async_get_user_decision,
+    is_interactive_terminal,
+)
 from ralph_py_cli.utils.ralph_plan_helper import (
     PlanHelperStatus,
     improve_plan_for_iteration,
@@ -22,30 +27,36 @@ console = Console()
 
 async def run_loop(
     folder: Path,
-    plan_text: str,
-    iterations: int,
+    state: LoopState,
     timeout: float,
     model: Optional[str],
     verbose: bool,
+    interactive: bool = True,
 ) -> tuple[int, RunStatus, str]:
     """Run the Claude Code iteration loop.
 
     Args:
         folder: Target folder path.
-        plan_text: The plan/design document text.
-        iterations: Maximum number of iterations.
+        state: The mutable loop state containing plan and iteration info.
         timeout: Timeout per iteration in seconds.
         model: Optional model override.
         verbose: Show detailed output.
+        interactive: Enable/disable prompts between iterations.
 
     Returns:
         Tuple of (iterations_run, final_status, message).
     """
-    for i in range(1, iterations + 1):
-        console.print(f"[bold blue]Iteration {i}/{iterations}[/bold blue] - In Progress")
+    # Check if interactive prompts are possible
+    can_prompt = interactive and is_interactive_terminal()
+
+    while state.current_iteration < state.total_iterations:
+        state.current_iteration += 1
+        i = state.current_iteration
+
+        console.print(f"[bold blue]Iteration {i}/{state.total_iterations}[/bold blue] - In Progress")
 
         result = await run_claude_iteration(
-            plan_text=plan_text,
+            plan_text=state.plan_text,
             folder_path=str(folder),
             timeout_seconds=timeout,
             model=model,
@@ -74,10 +85,20 @@ async def run_loop(
         # IMPROVED - continue to next iteration
         console.print(f"[cyan]  Improved:[/cyan] {result.output_message or result.summary}")
 
+        # Prompt user between iterations if interactive and not skipping
+        is_last_iteration = state.current_iteration >= state.total_iterations
+        if can_prompt and not state.skip_prompts and not is_last_iteration:
+            await async_get_user_decision(state)
+
+            if state.cancelled:
+                message = f"Cancelled by user after {i} iteration{'s' if i > 1 else ''}"
+                console.print(f"[bold yellow]{message}[/bold yellow]")
+                return i, RunStatus.IMPROVED, message
+
     # All iterations exhausted with IMPROVED
-    message = f"Ran {iterations} iterations without completing"
+    message = f"Ran {state.total_iterations} iterations without completing"
     console.print(f"[bold yellow]{message}[/bold yellow]")
-    return iterations, RunStatus.IMPROVED, message
+    return state.total_iterations, RunStatus.IMPROVED, message
 
 
 def resolve_plan_text(plan: Optional[str], plan_file: Optional[Path]) -> str:
@@ -157,6 +178,12 @@ def run(
         "-v",
         help="Show detailed output",
     ),
+    interactive: bool = typer.Option(
+        True,
+        "--interactive/--no-interactive",
+        "-i/-I",
+        help="Enable/disable prompts between iterations",
+    ),
 ) -> None:
     """Run Claude Code iteratively on a project until completion or error.
 
@@ -165,6 +192,7 @@ def run(
     - The task is completed (exit code 0)
     - An error occurs (exit code 1)
     - Maximum iterations reached without completion (exit code 2)
+    - User cancels via interactive prompt (exit code 2)
     """
     try:
         plan_text = resolve_plan_text(plan, plan_file)
@@ -176,10 +204,14 @@ def run(
     console.print(f"[bold]Max iterations:[/bold] {iterations}")
     if model:
         console.print(f"[bold]Model:[/bold] {model}")
+    if not interactive:
+        console.print("[dim]Interactive prompts disabled[/dim]")
     console.print()
 
+    state = LoopState(plan_text=plan_text, total_iterations=iterations)
+
     iterations_run, status, message = asyncio.run(
-        run_loop(folder, plan_text, iterations, timeout, model, verbose)
+        run_loop(folder, state, timeout, model, verbose, interactive)
     )
 
     # Exit codes based on status

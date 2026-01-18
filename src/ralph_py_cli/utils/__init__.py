@@ -1,4 +1,8 @@
 # utils package
+from ralph_py_cli.utils.interactive import (
+    LoopAction,
+    LoopState,
+)
 from ralph_py_cli.utils.ralph_plan_helper import (
     PlanHelperResult,
     PlanHelperStatus,
@@ -8,6 +12,8 @@ from ralph_py_cli.utils.ralph_plan_helper import (
 )
 
 __all__ = [
+    "LoopAction",
+    "LoopState",
     "PlanHelperStatus",
     "PlanHelperResult",
     "improve_plan_for_iteration",
