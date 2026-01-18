@@ -19,8 +19,11 @@ This is useful for larger tasks that require multiple Claude Code sessions to co
 ## Installation
 
 ```bash
-# Install dependencies (requires UV)
-./install.sh
+# Install via pip
+pip install ralph-py-cli
+
+# Or install via uv
+uv add ralph-py-cli
 ```
 
 ## CLI Usage
@@ -97,3 +100,46 @@ ralph plan --plan-file plan.txt --output optimized-plan.txt
 # Run the loop
 ralph run ./todo-project --plan-file optimized-plan.txt --iterations 5
 ```
+
+## Interactive Loop Menu
+
+When running in an interactive terminal, Ralph pauses between iterations to let you control the loop. This gives you the opportunity to review progress and make adjustments.
+
+### Main Menu
+
+After each iteration, you'll see:
+
+```
+What would you like to do next?
+  [1] Continue to next iteration
+  [2] Edit loop settings
+  [3] Skip future prompts (auto-continue)
+  [4] Cancel
+```
+
+- **Continue** - Proceed to the next iteration with current settings
+- **Edit** - Open the edit menu to change plan or iterations
+- **Skip** - Disable prompts and auto-continue for remaining iterations
+- **Cancel** - Stop the loop immediately
+
+### Edit Menu
+
+When you select "Edit loop settings", you can make multiple changes before continuing:
+
+```
+=== Edit Loop Settings ===
+Current plan: <first 100 chars of plan>...
+Remaining iterations: X
+
+  [1] Change plan (enter text)
+  [2] Change plan (load from file)
+  [3] Change iteration count
+  [4] Confirm and continue
+  [5] Cancel (discard changes)
+```
+
+- **Change plan (text)** - Enter new plan text directly
+- **Change plan (file)** - Load plan from a file path
+- **Change iteration count** - Set remaining iterations
+- **Confirm** - Apply changes and continue to next iteration
+- **Cancel** - Discard all changes and return to main menu

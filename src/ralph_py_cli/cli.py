@@ -1,6 +1,5 @@
 """CLI for running Claude Code iteratively until completion or error."""
 
-import asyncio
 from pathlib import Path
 from typing import Optional
 
@@ -13,7 +12,7 @@ from ralph_py_cli.utils.claude_runner import (
 )
 from ralph_py_cli.utils.interactive import (
     LoopState,
-    async_get_user_decision,
+    get_user_decision,
     is_interactive_terminal,
 )
 from ralph_py_cli.utils.ralph_plan_helper import (
@@ -25,7 +24,7 @@ app = typer.Typer(name="ralph", help="Run Claude Code iteratively on a project")
 console = Console()
 
 
-async def run_loop(
+def run_loop(
     folder: Path,
     state: LoopState,
     timeout: float,
@@ -55,7 +54,7 @@ async def run_loop(
 
         console.print(f"[bold blue]Iteration {i}/{state.total_iterations}[/bold blue] - In Progress")
 
-        result = await run_claude_iteration(
+        result = run_claude_iteration(
             plan_text=state.plan_text,
             folder_path=str(folder),
             timeout_seconds=timeout,
@@ -88,7 +87,7 @@ async def run_loop(
         # Prompt user between iterations if interactive and not skipping
         is_last_iteration = state.current_iteration >= state.total_iterations
         if can_prompt and not state.skip_prompts and not is_last_iteration:
-            await async_get_user_decision(state)
+            get_user_decision(state)
 
             if state.cancelled:
                 message = f"Cancelled by user after {i} iteration{'s' if i > 1 else ''}"
@@ -210,8 +209,8 @@ def run(
 
     state = LoopState(plan_text=plan_text, total_iterations=iterations)
 
-    iterations_run, status, message = asyncio.run(
-        run_loop(folder, state, timeout, model, verbose, interactive)
+    iterations_run, status, message = run_loop(
+        folder, state, timeout, model, verbose, interactive
     )
 
     # Exit codes based on status
@@ -285,12 +284,10 @@ def plan(
             console.print(f"  Model: {model}")
     console.print()
 
-    result = asyncio.run(
-        improve_plan_for_iteration(
-            plan_text=plan_text,
-            timeout_seconds=timeout,
-            model=model,
-        )
+    result = improve_plan_for_iteration(
+        plan_text=plan_text,
+        timeout_seconds=timeout,
+        model=model,
     )
 
     if result.status == PlanHelperStatus.SUCCESS:

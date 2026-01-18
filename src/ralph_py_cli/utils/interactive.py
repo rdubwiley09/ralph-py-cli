@@ -1,8 +1,7 @@
 """Interactive prompts for loop control between iterations."""
 
-import asyncio
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Optional
@@ -12,9 +11,7 @@ class LoopAction(Enum):
     """Actions available during interactive loop control."""
 
     CONTINUE = "continue"
-    REFRESH_PLAN_TEXT = "refresh_text"
-    REFRESH_PLAN_FILE = "refresh_file"
-    EXTEND_ITERATIONS = "extend"
+    EDIT = "edit"
     SKIP_PROMPTS = "skip"
     CANCEL = "cancel"
 
@@ -35,8 +32,8 @@ def is_interactive_terminal() -> bool:
     return sys.stdin.isatty()
 
 
-def prompt_user_action() -> LoopAction:
-    """Display menu and prompt user for next action.
+def prompt_main_menu() -> LoopAction:
+    """Display main menu and prompt user for next action.
 
     Returns:
         The selected LoopAction.
@@ -44,30 +41,24 @@ def prompt_user_action() -> LoopAction:
     print()
     print("What would you like to do next?")
     print("  [1] Continue to next iteration")
-    print("  [2] Refresh plan (enter text)")
-    print("  [3] Refresh plan (load from file)")
-    print("  [4] Extend iterations")
-    print("  [5] Skip future prompts (auto-continue)")
-    print("  [6] Cancel")
+    print("  [2] Edit loop settings")
+    print("  [3] Skip future prompts (auto-continue)")
+    print("  [4] Cancel")
     print()
 
     while True:
-        choice = input("Choice [1-6] (default: 1): ").strip()
+        choice = input("Choice [1-4] (default: 1): ").strip()
 
         if choice == "" or choice == "1":
             return LoopAction.CONTINUE
         elif choice == "2":
-            return LoopAction.REFRESH_PLAN_TEXT
+            return LoopAction.EDIT
         elif choice == "3":
-            return LoopAction.REFRESH_PLAN_FILE
-        elif choice == "4":
-            return LoopAction.EXTEND_ITERATIONS
-        elif choice == "5":
             return LoopAction.SKIP_PROMPTS
-        elif choice == "6":
+        elif choice == "4":
             return LoopAction.CANCEL
         else:
-            print("Invalid choice. Please enter 1-6.")
+            print("Invalid choice. Please enter 1-4.")
 
 
 def prompt_new_plan_text() -> Optional[str]:
@@ -172,56 +163,138 @@ def prompt_additional_iterations() -> Optional[int]:
             print("Invalid number. Please enter a positive integer.")
 
 
-def get_user_decision(state: LoopState) -> None:
-    """Get user decision and update state accordingly.
+def prompt_new_iteration_count(current_remaining: int) -> Optional[int]:
+    """Prompt for a new total iteration count.
 
-    This is a synchronous function that handles the interactive prompt
-    and modifies the LoopState based on user input.
+    Args:
+        current_remaining: The current number of remaining iterations.
+
+    Returns:
+        The new total iteration count, or None if cancelled.
+    """
+    print()
+
+    while True:
+        count_str = input(
+            f"Enter new remaining iteration count (currently {current_remaining}, or empty to cancel): "
+        ).strip()
+
+        if not count_str:
+            print("Cancelled - keeping current iteration count.")
+            return None
+
+        try:
+            count = int(count_str)
+            if count < 0:
+                print("Please enter a non-negative number.")
+                continue
+            return count
+        except ValueError:
+            print("Invalid number. Please enter a non-negative integer.")
+
+
+def prompt_edit_menu(state: LoopState) -> bool:
+    """Display edit menu and allow user to modify loop settings.
+
+    Shows current plan preview and iteration info. Allows multiple edits
+    before confirming. Modifies state directly for plan/iteration changes.
 
     Args:
         state: The current loop state to potentially modify.
+
+    Returns:
+        True if changes were confirmed, False if cancelled.
     """
-    try:
-        action = prompt_user_action()
+    # Store original values in case user cancels
+    original_plan = state.plan_text
+    original_iterations = state.total_iterations
 
-        if action == LoopAction.CONTINUE:
-            pass  # Do nothing, continue to next iteration
+    while True:
+        # Show current state
+        remaining = state.total_iterations - state.current_iteration
+        plan_preview = state.plan_text[:100]
+        if len(state.plan_text) > 100:
+            plan_preview += "..."
 
-        elif action == LoopAction.CANCEL:
-            state.cancelled = True
+        print()
+        print("=== Edit Loop Settings ===")
+        print(f"Current plan: {plan_preview}")
+        print(f"Remaining iterations: {remaining}")
+        print()
+        print("  [1] Change plan (enter text)")
+        print("  [2] Change plan (load from file)")
+        print("  [3] Change iteration count")
+        print("  [4] Confirm and continue")
+        print("  [5] Cancel (discard changes)")
+        print()
 
-        elif action == LoopAction.SKIP_PROMPTS:
-            state.skip_prompts = True
-            print("Future prompts disabled - will auto-continue.")
+        choice = input("Choice [1-5]: ").strip()
 
-        elif action == LoopAction.REFRESH_PLAN_TEXT:
+        if choice == "1":
             new_plan = prompt_new_plan_text()
             if new_plan:
                 state.plan_text = new_plan
                 print("Plan updated.")
 
-        elif action == LoopAction.REFRESH_PLAN_FILE:
+        elif choice == "2":
             new_plan = prompt_plan_file_path()
             if new_plan:
                 state.plan_text = new_plan
                 print("Plan updated from file.")
 
-        elif action == LoopAction.EXTEND_ITERATIONS:
-            additional = prompt_additional_iterations()
-            if additional:
-                state.total_iterations += additional
-                print(f"Extended to {state.total_iterations} total iterations.")
+        elif choice == "3":
+            remaining = state.total_iterations - state.current_iteration
+            new_remaining = prompt_new_iteration_count(remaining)
+            if new_remaining is not None:
+                state.total_iterations = state.current_iteration + new_remaining
+                print(f"Iteration count updated. {new_remaining} iterations remaining.")
 
-    except KeyboardInterrupt:
-        print("\nCancelled.")
-        state.cancelled = True
+        elif choice == "4":
+            # Confirm and continue
+            return True
+
+        elif choice == "5":
+            # Cancel - restore original values
+            state.plan_text = original_plan
+            state.total_iterations = original_iterations
+            print("Changes discarded.")
+            return False
+
+        else:
+            print("Invalid choice. Please enter 1-5.")
 
 
-async def async_get_user_decision(state: LoopState) -> None:
-    """Async wrapper for get_user_decision using run_in_executor.
+def get_user_decision(state: LoopState) -> None:
+    """Get user decision and update state accordingly.
+
+    This function handles the interactive prompt and modifies the
+    LoopState based on user input.
 
     Args:
         state: The current loop state to potentially modify.
     """
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, get_user_decision, state)
+    try:
+        while True:
+            action = prompt_main_menu()
+
+            if action == LoopAction.CONTINUE:
+                return  # Continue to next iteration
+
+            elif action == LoopAction.CANCEL:
+                state.cancelled = True
+                return
+
+            elif action == LoopAction.SKIP_PROMPTS:
+                state.skip_prompts = True
+                print("Future prompts disabled - will auto-continue.")
+                return
+
+            elif action == LoopAction.EDIT:
+                confirmed = prompt_edit_menu(state)
+                if confirmed:
+                    return  # Changes confirmed, continue to next iteration
+                # If cancelled, loop back to main menu
+
+    except KeyboardInterrupt:
+        print("\nCancelled.")
+        state.cancelled = True

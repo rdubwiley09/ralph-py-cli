@@ -1,8 +1,8 @@
 """Plan improvement utilities for optimal iterative execution in the Ralph loop."""
 
-import asyncio
 import json
 import re
+import subprocess
 import time
 from dataclasses import dataclass
 from enum import Enum
@@ -114,7 +114,7 @@ def parse_plan_improvement_response(raw_output: str) -> tuple[Optional[str], Opt
     return improved_plan, reasoning
 
 
-async def improve_plan_for_iteration(
+def improve_plan_for_iteration(
     plan_text: str,
     timeout_seconds: float = 120.0,
     model: Optional[str] = None,
@@ -144,45 +144,27 @@ async def improve_plan_for_iteration(
         cmd.extend(["--model", model])
 
     try:
-        # Create subprocess
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+        # Run subprocess with timeout
+        result = subprocess.run(
+            cmd,
+            input=prompt,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
         )
 
-        try:
-            # Wait for completion with timeout
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(input=prompt.encode("utf-8")),
-                timeout=timeout_seconds,
-            )
-        except asyncio.TimeoutError:
-            # Kill the process on timeout
-            process.kill()
-            await process.wait()
-            return PlanHelperResult(
-                status=PlanHelperStatus.TIMEOUT,
-                improved_plan="",
-                original_plan=plan_text,
-                raw_output="",
-                error_message=f"Process timed out after {timeout_seconds} seconds",
-                duration_seconds=time.time() - start_time,
-            )
-
         duration = time.time() - start_time
-        raw_output = stdout.decode("utf-8", errors="replace")
-        stderr_output = stderr.decode("utf-8", errors="replace")
+        raw_output = result.stdout
+        stderr_output = result.stderr
 
         # Check return code
-        if process.returncode != 0:
+        if result.returncode != 0:
             return PlanHelperResult(
                 status=PlanHelperStatus.PROCESS_ERROR,
                 improved_plan="",
                 original_plan=plan_text,
                 raw_output=raw_output,
-                error_message=stderr_output or f"Process exited with code {process.returncode}",
+                error_message=stderr_output or f"Process exited with code {result.returncode}",
                 duration_seconds=duration,
             )
 
@@ -207,6 +189,15 @@ async def improve_plan_for_iteration(
             duration_seconds=duration,
         )
 
+    except subprocess.TimeoutExpired:
+        return PlanHelperResult(
+            status=PlanHelperStatus.TIMEOUT,
+            improved_plan="",
+            original_plan=plan_text,
+            raw_output="",
+            error_message=f"Process timed out after {timeout_seconds} seconds",
+            duration_seconds=time.time() - start_time,
+        )
     except FileNotFoundError:
         return PlanHelperResult(
             status=PlanHelperStatus.PROCESS_ERROR,

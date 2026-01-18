@@ -1,8 +1,8 @@
 """Claude Code runner utilities for iterative execution."""
 
-import asyncio
 import json
 import re
+import subprocess
 import time
 from dataclasses import dataclass
 from enum import Enum
@@ -141,7 +141,7 @@ def _extract_fallback_summary(text: str) -> str:
     return " ".join(summary_lines)[:500]  # Limit length
 
 
-async def run_claude_iteration(
+def run_claude_iteration(
     plan_text: str,
     folder_path: str,
     timeout_seconds: float = 300.0,
@@ -191,47 +191,29 @@ async def run_claude_iteration(
         cmd.extend(["--model", model])
 
     try:
-        # Create subprocess
-        process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+        # Run subprocess with timeout
+        result = subprocess.run(
+            cmd,
+            input=prompt,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
             cwd=str(folder),
         )
 
-        try:
-            # Wait for completion with timeout
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(input=prompt.encode("utf-8")),
-                timeout=timeout_seconds,
-            )
-        except asyncio.TimeoutError:
-            # Kill the process on timeout
-            process.kill()
-            await process.wait()
-            return ClaudeRunResult(
-                status=RunStatus.TIMEOUT,
-                output_message="",
-                summary="Process timed out",
-                raw_output="",
-                error_message=f"Process timed out after {timeout_seconds} seconds",
-                duration_seconds=time.time() - start_time,
-            )
-
         duration = time.time() - start_time
-        raw_output = stdout.decode("utf-8", errors="replace")
-        stderr_output = stderr.decode("utf-8", errors="replace")
+        raw_output = result.stdout
+        stderr_output = result.stderr
 
         # Check return code
-        if process.returncode != 0:
+        if result.returncode != 0:
             return ClaudeRunResult(
                 status=RunStatus.PROCESS_ERROR,
                 output_message="",
                 summary="",
                 raw_output=raw_output,
-                return_code=process.returncode,
-                error_message=stderr_output or f"Process exited with code {process.returncode}",
+                return_code=result.returncode,
+                error_message=stderr_output or f"Process exited with code {result.returncode}",
                 duration_seconds=duration,
             )
 
@@ -244,7 +226,7 @@ async def run_claude_iteration(
                 output_message="",
                 summary=summary,
                 raw_output=raw_output,
-                return_code=process.returncode,
+                return_code=result.returncode,
                 duration_seconds=duration,
             )
 
@@ -256,10 +238,19 @@ async def run_claude_iteration(
             output_message=output_message,
             summary=summary,
             raw_output=raw_output,
-            return_code=process.returncode,
+            return_code=result.returncode,
             duration_seconds=duration,
         )
 
+    except subprocess.TimeoutExpired:
+        return ClaudeRunResult(
+            status=RunStatus.TIMEOUT,
+            output_message="",
+            summary="Process timed out",
+            raw_output="",
+            error_message=f"Process timed out after {timeout_seconds} seconds",
+            duration_seconds=time.time() - start_time,
+        )
     except FileNotFoundError:
         return ClaudeRunResult(
             status=RunStatus.PROCESS_ERROR,

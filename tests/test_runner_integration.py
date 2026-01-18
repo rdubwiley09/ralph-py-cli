@@ -139,9 +139,9 @@ Made the following changes:
 class TestRunClaudeIteration:
     """Tests for run_claude_iteration function."""
 
-    async def test_invalid_folder(self):
+    def test_invalid_folder(self):
         """Test with a non-existent folder."""
-        result = await run_claude_iteration(
+        result = run_claude_iteration(
             plan_text="Do something.",
             folder_path="/nonexistent/path/that/does/not/exist",
             timeout_seconds=10.0,
@@ -150,12 +150,12 @@ class TestRunClaudeIteration:
         assert result.status == RunStatus.PROCESS_ERROR
         assert "does not exist" in result.error_message
 
-    async def test_path_is_file_not_directory(self, tmp_path):
+    def test_path_is_file_not_directory(self, tmp_path):
         """Test with a path that is a file, not a directory."""
         test_file = tmp_path / "file.txt"
         test_file.write_text("content")
 
-        result = await run_claude_iteration(
+        result = run_claude_iteration(
             plan_text="Do something.",
             folder_path=str(test_file),
             timeout_seconds=10.0,
@@ -170,13 +170,13 @@ class TestRunClaudeIteration:
 class TestRunClaudeIterationIntegration:
     """Integration tests that require Claude CLI."""
 
-    async def test_number_addition(self):
+    def test_number_addition(self):
         """Integration test: Claude adds a number and reports count."""
         with tempfile.TemporaryDirectory() as tmpdir:
             numbers_file = Path(tmpdir) / "numbers.txt"
             numbers_file.write_text("1\n2\n3\n")
 
-            result = await run_claude_iteration(
+            result = run_claude_iteration(
                 plan_text="Add a new number to numbers.txt (the next number in sequence) and tell me how many numbers are currently in the document.",
                 folder_path=tmpdir,
                 timeout_seconds=120.0,
@@ -190,13 +190,13 @@ class TestRunClaudeIterationIntegration:
             assert "4" in new_content, f"Expected '4' to be added to file, got: {new_content!r}"
             assert "4" in result.output_message or "four" in result.output_message.lower(), "Expected count in output"
 
-    async def test_empty_file(self):
+    def test_empty_file(self):
         """Test with an empty numbers file - Claude should add 1."""
         with tempfile.TemporaryDirectory() as tmpdir:
             numbers_file = Path(tmpdir) / "numbers.txt"
             numbers_file.write_text("")
 
-            result = await run_claude_iteration(
+            result = run_claude_iteration(
                 plan_text="Add a new number to numbers.txt (the next number in sequence, starting from 1 if empty) and tell me how many numbers are currently in the document.",
                 folder_path=tmpdir,
                 timeout_seconds=120.0,
@@ -208,7 +208,7 @@ class TestRunClaudeIterationIntegration:
             assert result.status in (RunStatus.IMPROVED, RunStatus.COMPLETED), f"Expected IMPROVED or COMPLETED, got {result.status}: {result.error_message}"
             assert "1" in new_content, f"Expected '1' to be added to empty file, got: {new_content!r}"
 
-    async def test_add_number_five_completion(self):
+    def test_add_number_five_completion(self):
         """Integration test: Simple definite task should return COMPLETED.
 
         This test verifies that a simple, clearly completable task results in
@@ -218,7 +218,7 @@ class TestRunClaudeIterationIntegration:
             doc_file = Path(tmpdir) / "document.txt"
             doc_file.write_text("This document contains some numbers: 1, 2, 3, 4\n")
 
-            result = await run_claude_iteration(
+            result = run_claude_iteration(
                 plan_text="Add the number five to document.txt. This is the complete task - just add the number 5 somewhere in the document.",
                 folder_path=tmpdir,
                 timeout_seconds=120.0,
@@ -229,13 +229,13 @@ class TestRunClaudeIterationIntegration:
             assert result.status == RunStatus.COMPLETED, f"Expected COMPLETED for simple definite task, got {result.status}: {result.error_message}"
             assert "5" in new_content, f"Expected '5' to be in file, got: {new_content!r}"
 
-    async def test_timeout(self):
+    def test_timeout(self):
         """Test that timeout works correctly."""
         with tempfile.TemporaryDirectory() as tmpdir:
             test_file = Path(tmpdir) / "test.txt"
             test_file.write_text("test content")
 
-            result = await run_claude_iteration(
+            result = run_claude_iteration(
                 plan_text="Do a complex analysis of the entire codebase.",
                 folder_path=tmpdir,
                 timeout_seconds=0.1,  # 100ms - too short for any real work
