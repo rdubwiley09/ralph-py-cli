@@ -9,6 +9,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Optional
 
+from ralph_py_cli.utils.token_usage import TokenUsage, parse_token_usage
+
 
 class RunStatus(Enum):
     """Status of a Claude Code run."""
@@ -31,6 +33,7 @@ class ClaudeRunResult:
     return_code: Optional[int] = None
     error_message: Optional[str] = None
     duration_seconds: Optional[float] = None
+    token_usage: Optional[TokenUsage] = None
 
 
 def build_iteration_prompt(plan_text: str) -> str:
@@ -69,22 +72,26 @@ Important:
 """
 
 
-def parse_claude_output(raw_output: str) -> tuple[Optional[str], Optional[str], str]:
-    """Parse Claude Code JSON output to extract the status marker.
+def parse_claude_output(
+    raw_output: str,
+) -> tuple[Optional[str], Optional[str], str, Optional[TokenUsage]]:
+    """Parse Claude Code JSON output to extract the status marker and token usage.
 
     Args:
         raw_output: The raw JSON output from Claude Code CLI.
 
     Returns:
-        A tuple of (marker_type, output_message, summary) where:
+        A tuple of (marker_type, output_message, summary, token_usage) where:
         - marker_type is "improved", "completed", or None if not found
         - output_message is the content from the marker (or None if not found)
         - summary is the output message or a fallback summary
+        - token_usage is the TokenUsage if available, None otherwise
 
         If both markers are present, <Completed> takes precedence.
     """
     # Try to parse as JSON first
     text_content = ""
+    token_usage = None
     try:
         data = json.loads(raw_output)
         # Claude CLI JSON output has a "result" field with the response
@@ -95,6 +102,9 @@ def parse_claude_output(raw_output: str) -> tuple[Optional[str], Optional[str], 
             elif isinstance(result, dict):
                 # Handle nested structure if present
                 text_content = result.get("text", str(result))
+
+            # Extract token usage from JSON
+            token_usage = parse_token_usage(data)
     except json.JSONDecodeError:
         # If not valid JSON, treat the whole output as text
         text_content = raw_output
@@ -105,7 +115,7 @@ def parse_claude_output(raw_output: str) -> tuple[Optional[str], Optional[str], 
 
     if completed_match:
         output_message = completed_match.group(1).strip()
-        return "completed", output_message, output_message
+        return "completed", output_message, output_message, token_usage
 
     # Look for <Improved> marker
     improved_pattern = r"<Improved>(.*?)</Improved>"
@@ -113,12 +123,12 @@ def parse_claude_output(raw_output: str) -> tuple[Optional[str], Optional[str], 
 
     if improved_match:
         output_message = improved_match.group(1).strip()
-        return "improved", output_message, output_message
+        return "improved", output_message, output_message, token_usage
 
     # Fallback: try to extract a summary from the output
     # Look for common patterns that might indicate what was done
     fallback_summary = _extract_fallback_summary(text_content)
-    return None, None, fallback_summary
+    return None, None, fallback_summary, token_usage
 
 
 def _extract_fallback_summary(text: str) -> str:
@@ -218,7 +228,7 @@ def run_claude_iteration(
             )
 
         # Parse the output
-        marker_type, output_message, summary = parse_claude_output(raw_output)
+        marker_type, output_message, summary, token_usage = parse_claude_output(raw_output)
 
         if marker_type is None:
             return ClaudeRunResult(
@@ -228,6 +238,7 @@ def run_claude_iteration(
                 raw_output=raw_output,
                 return_code=result.returncode,
                 duration_seconds=duration,
+                token_usage=token_usage,
             )
 
         # Set status based on which marker was found
@@ -240,6 +251,7 @@ def run_claude_iteration(
             raw_output=raw_output,
             return_code=result.returncode,
             duration_seconds=duration,
+            token_usage=token_usage,
         )
 
     except subprocess.TimeoutExpired:

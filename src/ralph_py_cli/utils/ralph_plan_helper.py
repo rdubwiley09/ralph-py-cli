@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
 
+from ralph_py_cli.utils.token_usage import TokenUsage, parse_token_usage
+
 
 class PlanHelperStatus(Enum):
     """Status of a plan improvement operation."""
@@ -28,6 +30,7 @@ class PlanHelperResult:
     raw_output: str  # For debugging
     error_message: Optional[str] = None
     duration_seconds: Optional[float] = None
+    token_usage: Optional[TokenUsage] = None
 
 
 def build_plan_improvement_prompt(plan_text: str) -> str:
@@ -78,17 +81,20 @@ Important:
 """
 
 
-def parse_plan_improvement_response(raw_output: str) -> tuple[Optional[str], Optional[str]]:
-    """Parse Claude's response to extract the improved plan.
+def parse_plan_improvement_response(
+    raw_output: str,
+) -> tuple[Optional[str], Optional[str], Optional[TokenUsage]]:
+    """Parse Claude's response to extract the improved plan and token usage.
 
     Args:
         raw_output: The raw output from Claude (may be JSON).
 
     Returns:
-        A tuple of (improved_plan, reasoning) where either may be None if not found.
+        A tuple of (improved_plan, reasoning, token_usage) where any may be None if not found.
     """
     # Try to parse as JSON first (Claude CLI JSON output format)
     text_content = ""
+    token_usage = None
     try:
         data = json.loads(raw_output)
         if isinstance(data, dict):
@@ -97,6 +103,9 @@ def parse_plan_improvement_response(raw_output: str) -> tuple[Optional[str], Opt
                 text_content = result
             elif isinstance(result, dict):
                 text_content = result.get("text", str(result))
+
+            # Extract token usage from JSON
+            token_usage = parse_token_usage(data)
     except json.JSONDecodeError:
         # If not valid JSON, treat the whole output as text
         text_content = raw_output
@@ -111,7 +120,7 @@ def parse_plan_improvement_response(raw_output: str) -> tuple[Optional[str], Opt
     reasoning_match = re.search(reasoning_pattern, text_content, re.DOTALL)
     reasoning = reasoning_match.group(1).strip() if reasoning_match else None
 
-    return improved_plan, reasoning
+    return improved_plan, reasoning, token_usage
 
 
 def improve_plan_for_iteration(
@@ -169,7 +178,7 @@ def improve_plan_for_iteration(
             )
 
         # Parse the output
-        improved_plan, _reasoning = parse_plan_improvement_response(raw_output)
+        improved_plan, _reasoning, token_usage = parse_plan_improvement_response(raw_output)
 
         if improved_plan is None:
             return PlanHelperResult(
@@ -179,6 +188,7 @@ def improve_plan_for_iteration(
                 raw_output=raw_output,
                 error_message="Could not extract improved plan from response",
                 duration_seconds=duration,
+                token_usage=token_usage,
             )
 
         return PlanHelperResult(
@@ -187,6 +197,7 @@ def improve_plan_for_iteration(
             original_plan=plan_text,
             raw_output=raw_output,
             duration_seconds=duration,
+            token_usage=token_usage,
         )
 
     except subprocess.TimeoutExpired:

@@ -19,6 +19,7 @@ from ralph_py_cli.utils.ralph_plan_helper import (
     PlanHelperStatus,
     improve_plan_for_iteration,
 )
+from ralph_py_cli.utils.token_usage import TokenUsageTracker
 
 app = typer.Typer(name="ralph", help="Run Claude Code iteratively on a project")
 console = Console()
@@ -61,6 +62,11 @@ def run_loop(
             model=model,
         )
 
+        # Track token usage if available
+        if result.token_usage:
+            state.token_tracker.add_usage(result.token_usage)
+            console.print(f"  {result.token_usage.format_compact()}")
+
         if verbose:
             console.print(f"  Status: {result.status.value}")
             if result.summary:
@@ -73,12 +79,14 @@ def run_loop(
             console.print(f"[bold green]{message}[/bold green]")
             if result.output_message:
                 console.print(f"  {result.output_message}")
+            _print_session_summary(state.token_tracker)
             return i, RunStatus.COMPLETED, message
 
         if result.status in (RunStatus.TIMEOUT, RunStatus.PROCESS_ERROR, RunStatus.MISSING_MARKER):
             error_detail = result.error_message or result.status.value
             message = f"Stopped at iteration {i} due to: {error_detail}"
             console.print(f"[bold red]{message}[/bold red]")
+            _print_session_summary(state.token_tracker)
             return i, result.status, message
 
         # IMPROVED - continue to next iteration
@@ -92,12 +100,29 @@ def run_loop(
             if state.cancelled:
                 message = f"Cancelled by user after {i} iteration{'s' if i > 1 else ''}"
                 console.print(f"[bold yellow]{message}[/bold yellow]")
+                _print_session_summary(state.token_tracker)
                 return i, RunStatus.IMPROVED, message
 
     # All iterations exhausted with IMPROVED
     message = f"Ran {state.total_iterations} iterations without completing"
     console.print(f"[bold yellow]{message}[/bold yellow]")
+    _print_session_summary(state.token_tracker)
     return state.total_iterations, RunStatus.IMPROVED, message
+
+
+def _print_session_summary(tracker: TokenUsageTracker) -> None:
+    """Print session summary with token usage and tier percentages.
+
+    Args:
+        tracker: The token usage tracker with accumulated data.
+    """
+    if tracker.total_tokens == 0:
+        return
+
+    console.print()
+    console.print(tracker.format_summary())
+    console.print()
+    console.print(tracker.create_tier_table())
 
 
 def resolve_plan_text(plan: Optional[str], plan_file: Optional[Path]) -> str:
@@ -302,6 +327,16 @@ def plan(
             console.print("[bold green]Improved Plan:[/bold green]")
             console.print()
             console.print(result.improved_plan)
+
+        # Display token usage if available
+        if result.token_usage:
+            console.print()
+            console.print(result.token_usage.format_compact())
+            # Create a tracker for tier percentages display
+            tracker = TokenUsageTracker()
+            tracker.add_usage(result.token_usage)
+            console.print()
+            console.print(tracker.create_tier_table())
 
         raise typer.Exit(code=0)
     else:

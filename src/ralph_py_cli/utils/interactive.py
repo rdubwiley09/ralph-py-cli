@@ -1,10 +1,12 @@
 """Interactive prompts for loop control between iterations."""
 
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Optional
+
+from ralph_py_cli.utils.token_usage import TokenUsageTracker
 
 
 class LoopAction(Enum):
@@ -25,6 +27,7 @@ class LoopState:
     current_iteration: int = 0
     skip_prompts: bool = False
     cancelled: bool = False
+    token_tracker: TokenUsageTracker = field(default_factory=TokenUsageTracker)
 
 
 def is_interactive_terminal() -> bool:

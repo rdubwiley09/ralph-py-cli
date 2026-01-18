@@ -67,7 +67,7 @@ class TestParseClaudeOutput:
         """Test parsing output that contains the completed marker."""
         raw_output = '{"result": "I made some changes. <Completed>Added the new feature successfully</Completed> All done."}'
 
-        marker_type, output_message, summary = parse_claude_output(raw_output)
+        marker_type, output_message, summary, _token_usage = parse_claude_output(raw_output)
 
         assert marker_type == "completed"
         assert output_message == "Added the new feature successfully"
@@ -77,7 +77,7 @@ class TestParseClaudeOutput:
         """Test parsing output that contains the improved marker."""
         raw_output = '{"result": "Making progress. <Improved>Added half the feature, more work needed</Improved>"}'
 
-        marker_type, output_message, summary = parse_claude_output(raw_output)
+        marker_type, output_message, summary, _token_usage = parse_claude_output(raw_output)
 
         assert marker_type == "improved"
         assert output_message == "Added half the feature, more work needed"
@@ -87,7 +87,7 @@ class TestParseClaudeOutput:
         """Test that <Completed> takes precedence when both markers present."""
         raw_output = '{"result": "<Improved>partial</Improved> <Completed>finished</Completed>"}'
 
-        marker_type, output_message, summary = parse_claude_output(raw_output)
+        marker_type, output_message, summary, _token_usage = parse_claude_output(raw_output)
 
         assert marker_type == "completed"
         assert output_message == "finished"
@@ -96,7 +96,7 @@ class TestParseClaudeOutput:
         """Test parsing output that lacks any marker."""
         raw_output = '{"result": "I made some changes but forgot the marker."}'
 
-        marker_type, output_message, summary = parse_claude_output(raw_output)
+        marker_type, output_message, summary, _token_usage = parse_claude_output(raw_output)
 
         assert marker_type is None
         assert output_message is None
@@ -106,7 +106,7 @@ class TestParseClaudeOutput:
         """Test parsing non-JSON output with completed marker."""
         raw_output = "This is not JSON but has <Completed>a marker</Completed> in it."
 
-        marker_type, output_message, summary = parse_claude_output(raw_output)
+        marker_type, output_message, summary, _token_usage = parse_claude_output(raw_output)
 
         assert marker_type == "completed"
         assert output_message == "a marker"
@@ -115,7 +115,7 @@ class TestParseClaudeOutput:
         """Test parsing non-JSON output with improved marker."""
         raw_output = "This is not JSON but has <Improved>made progress</Improved> in it."
 
-        marker_type, output_message, summary = parse_claude_output(raw_output)
+        marker_type, output_message, summary, _token_usage = parse_claude_output(raw_output)
 
         assert marker_type == "improved"
         assert output_message == "made progress"
@@ -128,7 +128,7 @@ Made the following changes:
 - Modified file B
 </Completed>"}"""
 
-        marker_type, output_message, summary = parse_claude_output(raw_output)
+        marker_type, output_message, summary, _token_usage = parse_claude_output(raw_output)
 
         assert marker_type == "completed"
         assert output_message is not None
