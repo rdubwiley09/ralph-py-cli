@@ -313,3 +313,127 @@ class TestRunAgentIterationIntegration:
             )
 
             assert result.status == RunStatus.TIMEOUT, f"Expected TIMEOUT, got {result.status}"
+
+
+@pytest.mark.slow
+@pytest.mark.integration
+class TestRunEndlesslyIntegration:
+    """Integration tests for the run_endlessly command."""
+
+    def test_run_endlessly_with_max_iterations(self):
+        """Test that run_endlessly stops at max_iterations count."""
+        from ralph_py_cli.cli import run_endless_loop
+        from ralph_py_cli.utils.interactive import LoopState
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            numbers_file = Path(tmpdir) / "numbers.txt"
+            numbers_file.write_text("1\n2\n3\n")
+
+            state = LoopState(
+                plan_text="Add a new number to numbers.txt (the next number in sequence).",
+                total_iterations=999999,
+                agent_type="claude",
+            )
+
+            iterations_run, status, message = run_endless_loop(
+                folder=Path(tmpdir),
+                state=state,
+                timeout=120.0,
+                model=None,
+                verbose=False,
+                max_iterations=2,
+            )
+
+            assert iterations_run == 2, f"Expected 2 iterations, got {iterations_run}"
+            assert "max_iterations reached" in message.lower()
+
+    def test_run_endlessly_continues_on_completed(self):
+        """Test that run_endlessly continues past COMPLETED marker."""
+        from ralph_py_cli.cli import run_endless_loop
+        from ralph_py_cli.utils.interactive import LoopState
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            doc_file = Path(tmpdir) / "document.txt"
+            doc_file.write_text("Count: 0\n")
+
+            state = LoopState(
+                plan_text="Increment the count in document.txt by 1. This is a complete, simple task.",
+                total_iterations=999999,
+                agent_type="claude",
+            )
+
+            iterations_run, status, message = run_endless_loop(
+                folder=Path(tmpdir),
+                state=state,
+                timeout=120.0,
+                model=None,
+                verbose=False,
+                max_iterations=3,
+            )
+
+            # Should run all 3 iterations even if some complete
+            assert iterations_run == 3, f"Expected 3 iterations, got {iterations_run}"
+            assert "max_iterations reached" in message.lower()
+
+            # Verify the file was modified multiple times
+            content = doc_file.read_text()
+            # After 3 iterations, count should be at least 1 (probably higher)
+            assert "1" in content or "2" in content or "3" in content
+
+    def test_run_endlessly_continues_on_missing_marker(self):
+        """Test that run_endlessly continues with warning on MISSING_MARKER."""
+        from ralph_py_cli.cli import run_endless_loop
+        from ralph_py_cli.utils.interactive import LoopState
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_file = Path(tmpdir) / "test.txt"
+            test_file.write_text("content")
+
+            # Use a vague plan that might not always trigger markers
+            state = LoopState(
+                plan_text="Look at test.txt.",
+                total_iterations=999999,
+                agent_type="claude",
+            )
+
+            iterations_run, status, message = run_endless_loop(
+                folder=Path(tmpdir),
+                state=state,
+                timeout=120.0,
+                model=None,
+                verbose=False,
+                max_iterations=2,
+            )
+
+            # Should complete all iterations regardless of markers
+            assert iterations_run == 2, f"Expected 2 iterations, got {iterations_run}"
+            assert "max_iterations reached" in message.lower()
+
+    def test_run_endlessly_stops_on_consecutive_errors(self):
+        """Test that run_endlessly stops after 3 consecutive timeouts."""
+        from ralph_py_cli.cli import run_endless_loop
+        from ralph_py_cli.utils.interactive import LoopState
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            test_file = Path(tmpdir) / "test.txt"
+            test_file.write_text("test content")
+
+            state = LoopState(
+                plan_text="Do a very complex analysis of the entire codebase that will timeout.",
+                total_iterations=999999,
+                agent_type="claude",
+            )
+
+            iterations_run, status, message = run_endless_loop(
+                folder=Path(tmpdir),
+                state=state,
+                timeout=0.1,  # Very short timeout to force failures
+                model=None,
+                verbose=False,
+                max_iterations=10,  # Set high max but should stop on errors
+            )
+
+            # Should stop after 3 consecutive timeouts
+            assert iterations_run == 3, f"Expected 3 iterations (3 consecutive errors), got {iterations_run}"
+            assert status == RunStatus.TIMEOUT
+            assert "consecutive errors" in message.lower()
