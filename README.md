@@ -44,7 +44,7 @@ Both agents support the same Ralph loop workflow with iterative execution and in
 
 ## CLI Usage
 
-Ralph provides two commands: `run` and `plan`.
+Ralph provides three commands: `run`, `run-endlessly`, and `plan`.
 
 ### Running the Loop
 
@@ -91,6 +91,56 @@ ralph run ./my-project \
 - `0` - Task completed successfully
 - `1` - Error occurred (timeout, process error, etc.)
 - `2` - Max iterations reached without completion
+
+### Running Endlessly
+
+The `run-endlessly` command runs Claude Code continuously, ignoring completion markers and only stopping on errors or manual cancellation. This is useful for iterative improvement and exploration without predefined endpoints.
+
+```bash
+# Run endlessly with manual stop (Ctrl+C)
+ralph run-endlessly ./my-project --plan "Continuously improve code quality"
+
+# Run endlessly from plan file
+ralph run-endlessly ./my-project --plan-file design.md
+
+# With maximum iteration limit
+ralph run-endlessly ./my-project --plan-file design.md --max-iterations 50
+
+# With options
+ralph run-endlessly ./my-project \
+  --plan-file design.md \
+  --max-iterations 100 \
+  --timeout 600 \
+  --model claude-sonnet-4-20250514 \
+  --verbose
+
+# Using OpenCode agent
+ralph run-endlessly ./my-project \
+  --plan "Continuously improve code" \
+  --agent opencode \
+  --model opencode/glm-4.7-free
+```
+
+**Options:**
+- `--plan, -p` - Plan text describing what to build
+- `--plan-file, -f` - Read plan from a file
+- `--max-iterations, -n` - Maximum iterations (optional, omit for endless)
+- `--timeout, -t` - Timeout per iteration in seconds (default: 300)
+- `--agent, -a` - Agent to use: `claude` or `opencode` (default: claude)
+- `--model, -m` - Model override for the agent
+- `--verbose, -v` - Show detailed output
+
+**Key differences from `run`:**
+- No interactive prompts between iterations
+- Continues through COMPLETED and MISSING_MARKER statuses
+- Stops only on:
+  - 3 consecutive errors (TIMEOUT or PROCESS_ERROR)
+  - Manual cancellation (Ctrl+C)
+  - Maximum iterations reached (if --max-iterations specified)
+
+**Exit codes:**
+- `1` - Stopped due to consecutive errors
+- `2` - Cancelled by user or max iterations reached
 
 ### Improving a Plan
 
