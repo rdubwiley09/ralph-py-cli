@@ -1,39 +1,28 @@
-"""Claude Code runner utilities for iterative execution."""
+"""Claude Code runner utilities for iterative execution.
 
-import json
-import re
-import subprocess
-import time
-from dataclasses import dataclass
-from enum import Enum
+DEPRECATED: This module is deprecated. Use ralph_py_cli.utils.agent_runner instead.
+The agent_runner module provides a unified interface for multiple agents (claude, opencode).
+"""
+
+import warnings
 from pathlib import Path
 from typing import Optional
 
-from ralph_py_cli.utils.token_usage import TokenUsage, parse_token_usage
+# Import from new agent system
+from ralph_py_cli.utils.agents.base import AgentRunResult as ClaudeRunResult
+from ralph_py_cli.utils.agents.base import RunStatus
+from ralph_py_cli.utils.agent_runner import run_agent_iteration
+from ralph_py_cli.utils.token_usage import TokenUsage
 
+# Emit deprecation warning when module is imported
+warnings.warn(
+    "ralph_py_cli.utils.claude_runner is deprecated, use ralph_py_cli.utils.agent_runner instead",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
-class RunStatus(Enum):
-    """Status of a Claude Code run."""
-
-    IMPROVED = "improved"  # Made progress but task not complete
-    COMPLETED = "completed"  # Task fully finished per spec
-    TIMEOUT = "timeout"
-    PROCESS_ERROR = "process_error"
-    MISSING_MARKER = "missing_marker"
-
-
-@dataclass
-class ClaudeRunResult:
-    """Result from a single Claude Code iteration."""
-
-    status: RunStatus
-    output_message: str  # From <Improved> or <Completed> marker
-    summary: str  # Summary of what was done
-    raw_output: str  # Full output for debugging
-    return_code: Optional[int] = None
-    error_message: Optional[str] = None
-    duration_seconds: Optional[float] = None
-    token_usage: Optional[TokenUsage] = None
+# Re-export for backward compatibility
+__all__ = ["RunStatus", "ClaudeRunResult", "run_claude_iteration"]
 
 
 def build_iteration_prompt(plan_text: str) -> str:
@@ -159,6 +148,8 @@ def run_claude_iteration(
 ) -> ClaudeRunResult:
     """Run a single Claude Code iteration on a folder.
 
+    DEPRECATED: Use run_agent_iteration with agent_type='claude' instead.
+
     Args:
         plan_text: The plan/design document text to guide Claude.
         folder_path: The folder path where Claude should work.
@@ -168,116 +159,11 @@ def run_claude_iteration(
     Returns:
         ClaudeRunResult with status and output information.
     """
-    start_time = time.time()
-
-    # Validate folder path
-    folder = Path(folder_path)
-    if not folder.exists():
-        return ClaudeRunResult(
-            status=RunStatus.PROCESS_ERROR,
-            output_message="",
-            summary="",
-            raw_output="",
-            error_message=f"Folder does not exist: {folder_path}",
-            duration_seconds=time.time() - start_time,
-        )
-
-    if not folder.is_dir():
-        return ClaudeRunResult(
-            status=RunStatus.PROCESS_ERROR,
-            output_message="",
-            summary="",
-            raw_output="",
-            error_message=f"Path is not a directory: {folder_path}",
-            duration_seconds=time.time() - start_time,
-        )
-
-    # Build the prompt
-    prompt = build_iteration_prompt(plan_text)
-
-    # Build the command
-    cmd = ["claude", "-p", "--dangerously-skip-permissions", "--output-format", "json"]
-    if model:
-        cmd.extend(["--model", model])
-
-    try:
-        # Run subprocess with timeout
-        result = subprocess.run(
-            cmd,
-            input=prompt,
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
-            cwd=str(folder),
-        )
-
-        duration = time.time() - start_time
-        raw_output = result.stdout
-        stderr_output = result.stderr
-
-        # Check return code
-        if result.returncode != 0:
-            return ClaudeRunResult(
-                status=RunStatus.PROCESS_ERROR,
-                output_message="",
-                summary="",
-                raw_output=raw_output,
-                return_code=result.returncode,
-                error_message=stderr_output or f"Process exited with code {result.returncode}",
-                duration_seconds=duration,
-            )
-
-        # Parse the output
-        marker_type, output_message, summary, token_usage = parse_claude_output(raw_output)
-
-        if marker_type is None:
-            return ClaudeRunResult(
-                status=RunStatus.MISSING_MARKER,
-                output_message="",
-                summary=summary,
-                raw_output=raw_output,
-                return_code=result.returncode,
-                duration_seconds=duration,
-                token_usage=token_usage,
-            )
-
-        # Set status based on which marker was found
-        status = RunStatus.COMPLETED if marker_type == "completed" else RunStatus.IMPROVED
-
-        return ClaudeRunResult(
-            status=status,
-            output_message=output_message,
-            summary=summary,
-            raw_output=raw_output,
-            return_code=result.returncode,
-            duration_seconds=duration,
-            token_usage=token_usage,
-        )
-
-    except subprocess.TimeoutExpired:
-        return ClaudeRunResult(
-            status=RunStatus.TIMEOUT,
-            output_message="",
-            summary="Process timed out",
-            raw_output="",
-            error_message=f"Process timed out after {timeout_seconds} seconds",
-            duration_seconds=time.time() - start_time,
-        )
-    except FileNotFoundError:
-        return ClaudeRunResult(
-            status=RunStatus.PROCESS_ERROR,
-            output_message="",
-            summary="",
-            raw_output="",
-            error_message="Claude CLI not found. Make sure 'claude' is installed and in PATH.",
-            duration_seconds=time.time() - start_time,
-        )
-    except Exception as e:
-        return ClaudeRunResult(
-            status=RunStatus.PROCESS_ERROR,
-            output_message="",
-            summary="",
-            raw_output="",
-            error_message=f"Unexpected error: {e}",
-            duration_seconds=time.time() - start_time,
-        )
+    # Delegate to new agent runner with agent_type='claude'
+    return run_agent_iteration(
+        agent_type="claude",
+        plan_text=plan_text,
+        folder_path=folder_path,
+        timeout_seconds=timeout_seconds,
+        model=model,
+    )

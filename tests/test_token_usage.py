@@ -132,7 +132,7 @@ class TestTokenUsageTracker:
         # Just verify it creates a table without errors
         table = tracker.create_tier_table()
         assert table is not None
-        assert table.title == "5-Hour Rate Limit Usage"
+        assert table.title == "5-Hour Rate Limit Usage Estimate"
 
 
 class TestParseTokenUsage:

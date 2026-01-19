@@ -24,6 +24,7 @@ class LoopState:
 
     plan_text: str
     total_iterations: int
+    agent_type: str = "claude"  # Agent to use: "claude" or "opencode"
     current_iteration: int = 0
     skip_prompts: bool = False
     cancelled: bool = False
@@ -196,6 +197,45 @@ def prompt_new_iteration_count(current_remaining: int) -> Optional[int]:
             print("Invalid number. Please enter a non-negative integer.")
 
 
+def prompt_agent_type(current_agent: str) -> Optional[str]:
+    """Prompt for agent type selection.
+
+    Args:
+        current_agent: The current agent type.
+
+    Returns:
+        The selected agent type, or None if cancelled.
+    """
+    print()
+    print(f"Current agent: {current_agent}")
+    print("Available agents:")
+    print("  [1] claude (Claude Code CLI)")
+    print("  [2] opencode (OpenCode CLI)")
+    print()
+
+    while True:
+        choice = input("Choice [1-2] (or empty to cancel): ").strip()
+
+        if not choice:
+            print("Cancelled - keeping current agent.")
+            return None
+        elif choice == "1":
+            return "claude"
+        elif choice == "2":
+            # Check if opencode is available
+            from ralph_py_cli.utils.agent_runner import check_agent_available
+            available, error = check_agent_available("opencode")
+            if not available:
+                print(f"Warning: {error}")
+                print("Continue anyway? The next iteration will fail if opencode is not available.")
+                confirm = input("Continue? [y/N]: ").strip().lower()
+                if confirm != "y":
+                    continue
+            return "opencode"
+        else:
+            print("Invalid choice. Please enter 1 or 2.")
+
+
 def prompt_edit_menu(state: LoopState) -> bool:
     """Display edit menu and allow user to modify loop settings.
 
@@ -211,6 +251,7 @@ def prompt_edit_menu(state: LoopState) -> bool:
     # Store original values in case user cancels
     original_plan = state.plan_text
     original_iterations = state.total_iterations
+    original_agent_type = state.agent_type
 
     while True:
         # Show current state
@@ -221,17 +262,19 @@ def prompt_edit_menu(state: LoopState) -> bool:
 
         print()
         print("=== Edit Loop Settings ===")
+        print(f"Current agent: {state.agent_type}")
         print(f"Current plan: {plan_preview}")
         print(f"Remaining iterations: {remaining}")
         print()
         print("  [1] Change plan (enter text)")
         print("  [2] Change plan (load from file)")
         print("  [3] Change iteration count")
-        print("  [4] Confirm and continue")
-        print("  [5] Cancel (discard changes)")
+        print("  [4] Change agent type")
+        print("  [5] Confirm and continue")
+        print("  [6] Cancel (discard changes)")
         print()
 
-        choice = input("Choice [1-5]: ").strip()
+        choice = input("Choice [1-6]: ").strip()
 
         if choice == "1":
             new_plan = prompt_new_plan_text()
@@ -253,18 +296,25 @@ def prompt_edit_menu(state: LoopState) -> bool:
                 print(f"Iteration count updated. {new_remaining} iterations remaining.")
 
         elif choice == "4":
+            new_agent = prompt_agent_type(state.agent_type)
+            if new_agent:
+                state.agent_type = new_agent
+                print(f"Agent updated to: {new_agent}")
+
+        elif choice == "5":
             # Confirm and continue
             return True
 
-        elif choice == "5":
+        elif choice == "6":
             # Cancel - restore original values
             state.plan_text = original_plan
             state.total_iterations = original_iterations
+            state.agent_type = original_agent_type
             print("Changes discarded.")
             return False
 
         else:
-            print("Invalid choice. Please enter 1-5.")
+            print("Invalid choice. Please enter 1-6.")
 
 
 def get_user_decision(state: LoopState) -> None:

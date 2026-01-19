@@ -26,6 +26,22 @@ pip install ralph-py-cli
 uv add ralph-py-cli
 ```
 
+## Available Agents
+
+Ralph supports multiple AI coding agents:
+
+- **claude** (default) - Uses Claude Code CLI for code generation and iteration
+- **opencode** - Uses OpenCode CLI as an alternative agent (requires OpenCode to be installed)
+
+Both agents support the same Ralph loop workflow with iterative execution and interactive controls.
+
+### Agent-Specific Notes
+
+**OpenCode:**
+- Default model: `opencode/glm-4.7-free` (if no model is specified)
+- Requires OpenCode CLI to be installed and available in your PATH
+- Use `--model` to specify a different OpenCode model
+
 ## CLI Usage
 
 Ralph provides two commands: `run` and `plan`.
@@ -46,6 +62,19 @@ ralph run ./my-project \
   --timeout 600 \
   --model claude-sonnet-4-20250514 \
   --verbose
+
+# Using OpenCode agent (alternative to Claude Code)
+ralph run ./my-project \
+  --plan-file design.md \
+  --iterations 10 \
+  --agent opencode
+
+# Using OpenCode with custom model
+ralph run ./my-project \
+  --plan "Build a REST API" \
+  --iterations 5 \
+  --agent opencode \
+  --model opencode/glm-4.7-free
 ```
 
 **Options:**
@@ -53,8 +82,10 @@ ralph run ./my-project \
 - `--plan-file, -f` - Read plan from a file
 - `--iterations, -n` - Maximum iterations to run (required)
 - `--timeout, -t` - Timeout per iteration in seconds (default: 300)
-- `--model, -m` - Model override for Claude Code
+- `--agent, -a` - Agent to use: `claude` or `opencode` (default: claude)
+- `--model, -m` - Model override for the agent
 - `--verbose, -v` - Show detailed output
+- `--interactive/--no-interactive` - Enable/disable prompts between iterations (default: enabled)
 
 **Exit codes:**
 - `0` - Task completed successfully
@@ -81,7 +112,8 @@ ralph plan --plan-file rough-ideas.md --output optimized-plan.md
 - `--plan-file, -f` - Read plan from a file
 - `--output, -o` - Write improved plan to file
 - `--timeout, -t` - Timeout in seconds (default: 120)
-- `--model, -m` - Model override for Claude Code
+- `--agent, -a` - Agent to use: `claude` or `opencode` (default: claude)
+- `--model, -m` - Model override for the agent
 - `--verbose, -v` - Show detailed output
 
 ## Example Workflow

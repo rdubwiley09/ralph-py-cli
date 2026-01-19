@@ -6,10 +6,8 @@ from typing import Optional
 import typer
 from rich.console import Console
 
-from ralph_py_cli.utils.claude_runner import (
-    RunStatus,
-    run_claude_iteration,
-)
+from ralph_py_cli.utils.agents.base import RunStatus
+from ralph_py_cli.utils.agent_runner import check_agent_available, run_agent_iteration
 from ralph_py_cli.utils.interactive import (
     LoopState,
     get_user_decision,
@@ -55,7 +53,8 @@ def run_loop(
 
         console.print(f"[bold blue]Iteration {i}/{state.total_iterations}[/bold blue] - In Progress")
 
-        result = run_claude_iteration(
+        result = run_agent_iteration(
+            agent_type=state.agent_type,
             plan_text=state.plan_text,
             folder_path=str(folder),
             timeout_seconds=timeout,
@@ -194,7 +193,13 @@ def run(
         None,
         "--model",
         "-m",
-        help="Optional model override for Claude Code",
+        help="Optional model override for the agent",
+    ),
+    agent: str = typer.Option(
+        "claude",
+        "--agent",
+        "-a",
+        help="Agent to use: claude or opencode",
     ),
     verbose: bool = typer.Option(
         False,
@@ -209,7 +214,7 @@ def run(
         help="Enable/disable prompts between iterations",
     ),
 ) -> None:
-    """Run Claude Code iteratively on a project until completion or error.
+    """Run iteratively on a project until completion or error.
 
     The CLI runs Claude Code in a loop, with each iteration making incremental
     progress on the plan. The loop continues until:
@@ -224,7 +229,25 @@ def run(
         console.print(f"[bold red]Error:[/bold red] {e}")
         raise typer.Exit(code=1)
 
-    console.print(f"[bold]Running Claude Code on:[/bold] {folder}")
+    # Validate agent type
+    if agent not in ["claude", "opencode"]:
+        console.print(f"[bold red]Error:[/bold red] Unknown agent type: {agent}")
+        console.print("[dim]Available agents: claude, opencode[/dim]")
+        raise typer.Exit(code=1)
+
+    # Set default model for opencode if not specified
+    if agent == "opencode" and model is None:
+        model = "opencode/glm-4.7-free"
+
+    # Check agent availability
+    available, error = check_agent_available(agent)
+    if not available:
+        console.print(f"[bold red]Error:[/bold red] {error}")
+        console.print(f"[dim]Make sure '{agent}' is installed and in your PATH[/dim]")
+        raise typer.Exit(code=1)
+
+    console.print(f"[bold]Running on:[/bold] {folder}")
+    console.print(f"[bold]Agent:[/bold] {agent}")
     console.print(f"[bold]Max iterations:[/bold] {iterations}")
     if model:
         console.print(f"[bold]Model:[/bold] {model}")
@@ -232,7 +255,7 @@ def run(
         console.print("[dim]Interactive prompts disabled[/dim]")
     console.print()
 
-    state = LoopState(plan_text=plan_text, total_iterations=iterations)
+    state = LoopState(plan_text=plan_text, total_iterations=iterations, agent_type=agent)
 
     iterations_run, status, message = run_loop(
         folder, state, timeout, model, verbose, interactive
@@ -282,7 +305,13 @@ def plan(
         None,
         "--model",
         "-m",
-        help="Optional model override for Claude Code",
+        help="Optional model override for the agent",
+    ),
+    agent: str = typer.Option(
+        "claude",
+        "--agent",
+        "-a",
+        help="Agent to use: claude or opencode",
     ),
     verbose: bool = typer.Option(
         False,
@@ -302,7 +331,18 @@ def plan(
         console.print(f"[bold red]Error:[/bold red] {e}")
         raise typer.Exit(code=1)
 
+    # Validate agent type
+    if agent not in ["claude", "opencode"]:
+        console.print(f"[bold red]Error:[/bold red] Unknown agent type: {agent}")
+        console.print("[dim]Available agents: claude, opencode[/dim]")
+        raise typer.Exit(code=1)
+
+    # Set default model for opencode if not specified
+    if agent == "opencode" and model is None:
+        model = "opencode/glm-4.7-free"
+
     console.print("[bold]Improving plan for iterative execution...[/bold]")
+    console.print(f"[bold]Agent:[/bold] {agent}")
     if verbose:
         console.print(f"  Timeout: {timeout}s")
         if model:
@@ -313,6 +353,7 @@ def plan(
         plan_text=plan_text,
         timeout_seconds=timeout,
         model=model,
+        agent_type=agent,
     )
 
     if result.status == PlanHelperStatus.SUCCESS:

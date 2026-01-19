@@ -127,17 +127,19 @@ def improve_plan_for_iteration(
     plan_text: str,
     timeout_seconds: float = 120.0,
     model: Optional[str] = None,
+    agent_type: str = "claude",
 ) -> PlanHelperResult:
-    """Use Claude to improve a plan for optimal iterative execution.
+    """Use an agent to improve a plan for optimal iterative execution.
 
-    This function sends the plan to Claude for restructuring into small,
+    This function sends the plan to the specified agent for restructuring into small,
     atomic steps that are suitable for iterative implementation in the
     Ralph loop.
 
     Args:
         plan_text: The plan text to improve.
         timeout_seconds: Maximum time to wait for completion (default 2 minutes).
-        model: Optional model override for Claude.
+        model: Optional model override for the agent.
+        agent_type: Agent to use: "claude" or "opencode" (default "claude").
 
     Returns:
         PlanHelperResult with the improved plan or error information.
@@ -147,16 +149,33 @@ def improve_plan_for_iteration(
     # Build the prompt
     prompt = build_plan_improvement_prompt(plan_text)
 
-    # Build the command - no --dangerously-skip-permissions since this is read-only
-    cmd = ["claude", "-p", "--output-format", "json"]
-    if model:
-        cmd.extend(["--model", model])
+    # Build the command based on agent type
+    # Note: no --dangerously-skip-permissions since this is read-only
+    if agent_type == "claude":
+        cmd = ["claude", "-p", "--output-format", "json"]
+        if model:
+            cmd.extend(["--model", model])
+        stdin_input = prompt
+    elif agent_type == "opencode":
+        cmd = ["opencode", "run", prompt, "--format", "json"]
+        if model:
+            cmd.extend(["--model", model])
+        stdin_input = None
+    else:
+        return PlanHelperResult(
+            status=PlanHelperStatus.PROCESS_ERROR,
+            improved_plan="",
+            original_plan=plan_text,
+            raw_output="",
+            error_message=f"Unknown agent type: {agent_type}",
+            duration_seconds=0.0,
+        )
 
     try:
         # Run subprocess with timeout
         result = subprocess.run(
             cmd,
-            input=prompt,
+            input=stdin_input,
             capture_output=True,
             text=True,
             timeout=timeout_seconds,
@@ -210,12 +229,13 @@ def improve_plan_for_iteration(
             duration_seconds=time.time() - start_time,
         )
     except FileNotFoundError:
+        agent_name = agent_type.capitalize()
         return PlanHelperResult(
             status=PlanHelperStatus.PROCESS_ERROR,
             improved_plan="",
             original_plan=plan_text,
             raw_output="",
-            error_message="Claude CLI not found. Make sure 'claude' is installed and in PATH.",
+            error_message=f"{agent_name} CLI not found. Make sure '{agent_type}' is installed and in PATH.",
             duration_seconds=time.time() - start_time,
         )
     except Exception as e:
