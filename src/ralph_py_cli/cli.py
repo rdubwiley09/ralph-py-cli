@@ -227,6 +227,144 @@ def run_endless_loop(
         return state.current_iteration, RunStatus.IMPROVED, message
 
 
+def run_sequential_loop(
+    folder: Path,
+    blocks: list[str],
+    agent_type: str,
+    timeout: float,
+    model: Optional[str],
+    verbose: bool,
+    max_iterations_per_block: int = 10,
+    max_consecutive_errors: int = 3,
+) -> tuple[int, int, RunStatus, str]:
+    """Run Claude Code sequentially on a list of plan blocks.
+
+    For each block, runs until getting IMPROVED or COMPLETED status,
+    then moves to the next block.
+
+    Args:
+        folder: Target folder path.
+        blocks: List of plan text blocks to execute sequentially.
+        agent_type: The agent to use (claude or opencode).
+        timeout: Timeout per iteration in seconds.
+        model: Optional model override.
+        verbose: Show detailed output.
+        max_iterations_per_block: Maximum iterations per block before moving on.
+        max_consecutive_errors: Stop after this many consecutive errors.
+
+    Returns:
+        Tuple of (blocks_completed, total_iterations, final_status, message).
+    """
+    total_blocks = len(blocks)
+    total_iterations = 0
+    blocks_completed = 0
+    consecutive_errors = 0
+    token_tracker = TokenUsageTracker()
+
+    try:
+        for block_idx, block_text in enumerate(blocks):
+            block_num = block_idx + 1
+            block_iterations = 0
+
+            console.print()
+            console.print(f"[bold magenta]━━━ Block {block_num}/{total_blocks} ━━━[/bold magenta]")
+            # Show a preview of the block (first 100 chars)
+            block_preview = block_text.strip()[:100]
+            if len(block_text.strip()) > 100:
+                block_preview += "..."
+            console.print(f"[dim]{block_preview}[/dim]")
+            console.print()
+
+            # Run iterations for this block until IMPROVED/COMPLETED or max iterations
+            while block_iterations < max_iterations_per_block:
+                block_iterations += 1
+                total_iterations += 1
+
+                console.print(
+                    f"[bold blue]Block {block_num}/{total_blocks} - "
+                    f"Iteration {block_iterations}/{max_iterations_per_block}[/bold blue] - In Progress"
+                )
+
+                result = run_agent_iteration(
+                    agent_type=agent_type,
+                    plan_text=block_text,
+                    folder_path=str(folder),
+                    timeout_seconds=timeout,
+                    model=model,
+                )
+
+                # Track token usage if available
+                if result.token_usage:
+                    token_tracker.add_usage(result.token_usage)
+                    console.print(f"  {result.token_usage.format_compact()}")
+
+                if verbose:
+                    console.print(f"  Status: {result.status.value}")
+                    if result.summary:
+                        console.print(f"  Summary: {result.summary}")
+                    if result.duration_seconds:
+                        console.print(f"  Duration: {result.duration_seconds:.1f}s")
+
+                if result.status == RunStatus.COMPLETED:
+                    console.print(
+                        f"[green]  Completed:[/green] {result.output_message or result.summary}"
+                    )
+                    consecutive_errors = 0
+                    blocks_completed += 1
+                    break  # Move to next block
+
+                if result.status == RunStatus.IMPROVED:
+                    console.print(
+                        f"[cyan]  Improved:[/cyan] {result.output_message or result.summary}"
+                    )
+                    consecutive_errors = 0
+                    blocks_completed += 1
+                    break  # Move to next block
+
+                if result.status == RunStatus.MISSING_MARKER:
+                    console.print(
+                        f"[yellow]  Warning:[/yellow] No marker found - continuing iteration"
+                    )
+                    consecutive_errors = 0
+                    continue
+
+                if result.status in (RunStatus.TIMEOUT, RunStatus.PROCESS_ERROR):
+                    consecutive_errors += 1
+                    error_detail = result.error_message or result.status.value
+                    console.print(f"[red]  Error:[/red] {error_detail}")
+
+                    if consecutive_errors >= max_consecutive_errors:
+                        message = f"Stopped at block {block_num}, iteration {block_iterations} after {consecutive_errors} consecutive errors"
+                        console.print(f"[bold red]{message}[/bold red]")
+                        _print_session_summary(token_tracker)
+                        return blocks_completed, total_iterations, result.status, message
+
+                    console.print(
+                        f"[yellow]  Consecutive errors: {consecutive_errors}/{max_consecutive_errors}[/yellow]"
+                    )
+                    continue
+
+            else:
+                # Max iterations for this block reached without IMPROVED/COMPLETED
+                console.print(
+                    f"[yellow]  Block {block_num} reached max iterations ({max_iterations_per_block}) - moving to next block[/yellow]"
+                )
+
+        # All blocks processed
+        message = f"Completed {blocks_completed}/{total_blocks} blocks in {total_iterations} total iterations"
+        console.print()
+        console.print(f"[bold green]{message}[/bold green]")
+        _print_session_summary(token_tracker)
+        return blocks_completed, total_iterations, RunStatus.COMPLETED, message
+
+    except KeyboardInterrupt:
+        message = f"Cancelled by user after {blocks_completed}/{total_blocks} blocks, {total_iterations} iterations"
+        console.print()
+        console.print(f"[bold yellow]{message}[/bold yellow]")
+        _print_session_summary(token_tracker)
+        return blocks_completed, total_iterations, RunStatus.IMPROVED, message
+
+
 def _print_session_summary(tracker: TokenUsageTracker) -> None:
     """Print session summary with token usage and tier percentages.
 
@@ -509,6 +647,134 @@ def run_endlessly(
         raise typer.Exit(code=1)
     else:
         # User cancelled or exhausted iterations
+        raise typer.Exit(code=2)
+
+
+@app.command()
+def sequential(
+    folder: Path = typer.Argument(
+        ...,
+        help="Target folder path to run Claude Code on",
+        exists=True,
+        file_okay=False,
+        dir_okay=True,
+        resolve_path=True,
+    ),
+    plan: Optional[str] = typer.Option(
+        None,
+        "--plan",
+        "-p",
+        help="Plan text with blocks separated by double newlines",
+    ),
+    plan_file: Optional[Path] = typer.Option(
+        None,
+        "--plan-file",
+        "-f",
+        help="Read plan from file (alternative to --plan)",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+    ),
+    max_iterations_per_block: int = typer.Option(
+        10,
+        "--max-iterations",
+        "-n",
+        help="Maximum iterations per block before moving on",
+        min=1,
+    ),
+    timeout: float = typer.Option(
+        300.0,
+        "--timeout",
+        "-t",
+        help="Timeout per iteration in seconds",
+        min=1.0,
+    ),
+    model: Optional[str] = typer.Option(
+        None,
+        "--model",
+        "-m",
+        help="Optional model override for the agent",
+    ),
+    agent: str = typer.Option(
+        "claude",
+        "--agent",
+        "-a",
+        help="Agent to use: claude or opencode",
+    ),
+    verbose: bool = typer.Option(
+        False,
+        "--verbose",
+        "-v",
+        help="Show detailed output",
+    ),
+) -> None:
+    """Run sequentially through plan blocks separated by double newlines.
+
+    The CLI parses the plan into blocks (separated by blank lines) and runs
+    Claude Code on each block sequentially. For each block, it runs iterations
+    until getting an IMPROVED or COMPLETED marker, then moves to the next block.
+
+    Exit codes:
+    - 0: All blocks completed successfully
+    - 1: Stopped due to consecutive errors
+    - 2: User cancelled or partial completion
+    """
+    try:
+        plan_text = resolve_plan_text(plan, plan_file)
+    except typer.BadParameter as e:
+        console.print(f"[bold red]Error:[/bold red] {e}")
+        raise typer.Exit(code=1)
+
+    # Parse plan into blocks (split on double newlines)
+    blocks = [block.strip() for block in plan_text.split("\n\n") if block.strip()]
+
+    if not blocks:
+        console.print("[bold red]Error:[/bold red] No valid blocks found in plan")
+        console.print("[dim]Blocks should be separated by blank lines (double newlines)[/dim]")
+        raise typer.Exit(code=1)
+
+    # Validate agent type
+    if agent not in ["claude", "opencode"]:
+        console.print(f"[bold red]Error:[/bold red] Unknown agent type: {agent}")
+        console.print("[dim]Available agents: claude, opencode[/dim]")
+        raise typer.Exit(code=1)
+
+    # Set default model for opencode if not specified
+    if agent == "opencode" and model is None:
+        model = "opencode/glm-4.7-free"
+
+    # Check agent availability
+    available, error = check_agent_available(agent)
+    if not available:
+        console.print(f"[bold red]Error:[/bold red] {error}")
+        console.print(f"[dim]Make sure '{agent}' is installed and in your PATH[/dim]")
+        raise typer.Exit(code=1)
+
+    console.print(f"[bold]Running sequential on:[/bold] {folder}")
+    console.print(f"[bold]Agent:[/bold] {agent}")
+    console.print(f"[bold]Total blocks:[/bold] {len(blocks)}")
+    console.print(f"[bold]Max iterations per block:[/bold] {max_iterations_per_block}")
+    if model:
+        console.print(f"[bold]Model:[/bold] {model}")
+    console.print("[dim]Press Ctrl+C to stop[/dim]")
+
+    blocks_completed, total_iterations, status, message = run_sequential_loop(
+        folder=folder,
+        blocks=blocks,
+        agent_type=agent,
+        timeout=timeout,
+        model=model,
+        verbose=verbose,
+        max_iterations_per_block=max_iterations_per_block,
+    )
+
+    # Exit codes based on outcome
+    if blocks_completed == len(blocks):
+        raise typer.Exit(code=0)
+    elif status in (RunStatus.TIMEOUT, RunStatus.PROCESS_ERROR):
+        raise typer.Exit(code=1)
+    else:
+        # User cancelled or partial completion
         raise typer.Exit(code=2)
 
 
